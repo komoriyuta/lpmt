@@ -16,7 +16,8 @@ pub struct CaptureRuntime {
 
 #[cfg(all(feature = "pipewire", target_os = "linux"))]
 struct Connection {
-    session: lpmt_media::capture::CaptureSession,
+    session:
+        lpmt_media::capture::CaptureSession<std::sync::Arc<lpmt_render::capture::CaptureTexture>>,
     ids: Option<Vec<MediaId>>,
     reconnect: Option<MediaId>,
     retired: HashSet<MediaId>,
@@ -38,13 +39,15 @@ impl CaptureRuntime {
         }
     }
 
-    pub fn start(&mut self, reconnect: Option<MediaId>) -> Result<()> {
+    pub fn start(&mut self, reconnect: Option<MediaId>, gpu: &Gpu) -> Result<()> {
         #[cfg(all(feature = "pipewire", target_os = "linux"))]
         {
             if self.pending() {
                 return Ok(());
             }
-            let session = lpmt_media::capture::CaptureSession::select_windows(reconnect.is_none())?;
+            let uploader = lpmt_render::capture::CaptureUploader::new(gpu);
+            let session =
+                lpmt_media::capture::CaptureSession::select_windows(reconnect.is_none(), uploader)?;
             self.sessions.push(Connection {
                 session,
                 ids: None,
@@ -56,7 +59,7 @@ impl CaptureRuntime {
         }
         #[cfg(not(all(feature = "pipewire", target_os = "linux")))]
         {
-            let _ = reconnect;
+            let _ = (reconnect, gpu);
             anyhow::bail!("Window capture requires Linux and --features pipewire")
         }
     }
@@ -141,12 +144,8 @@ impl CaptureRuntime {
                     }
                     if connection.session.is_stopped(index) {
                         media.remove(id);
-                    } else if let Some(image) = connection.session.take_frame(index) {
-                        if let Err(error) = media.update_image(gpu, id.clone(), &image) {
-                            self.message = format!("Window upload failed: {error:#}");
-                            connection.session.stop_window(index);
-                            media.remove(id);
-                        }
+                    } else if let Some(frame) = connection.session.take_frame(index) {
+                        media.set_capture(gpu, id.clone(), &frame);
                     }
                 }
             }

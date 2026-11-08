@@ -3122,7 +3122,7 @@ impl App {
                     }
                 }
                 EditorAction::AddWindowInputs => {
-                    if let Err(error) = self.captures.start(None) {
+                    if let Err(error) = self.captures.start(None, &self.gpu) {
                         self.captures.message = format!("{error:#}");
                     }
                 }
@@ -3136,7 +3136,7 @@ impl App {
                         let id = asset.id.clone();
                         if !self.captures.pending() {
                             self.captures.stop(&id, &mut self.media);
-                            if let Err(error) = self.captures.start(Some(id)) {
+                            if let Err(error) = self.captures.start(Some(id), &self.gpu) {
                                 self.captures.message = format!("{error:#}");
                             }
                         }

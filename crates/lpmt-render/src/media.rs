@@ -158,6 +158,43 @@ impl MediaCache {
         self.media.get(id).map(|entry| &entry.view)
     }
 
+    /// Adopt a texture uploaded by the capture worker. Reuse the bind group and
+    /// thumbnail registration until the producer resizes or changes format.
+    pub fn set_capture(&mut self, gpu: &Gpu, id: MediaId, frame: &crate::capture::CaptureTexture) {
+        if self
+            .media
+            .get(&id)
+            .is_some_and(|entry| entry.texture == frame.texture)
+        {
+            return;
+        }
+        let bind_group = gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("capture-media"),
+            layout: &self.texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&frame.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        self.media.insert(
+            id,
+            TextureEntry {
+                texture: frame.texture.clone(),
+                view: frame.view.clone(),
+                width: frame.texture.width(),
+                height: frame.texture.height(),
+                bind_group,
+            },
+        );
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// Upload a decoded still image. Re-uploading the same media ID replaces
     /// the texture and bind group, which is used by "reload media".
     pub fn upload_image(

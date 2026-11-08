@@ -1,7 +1,7 @@
 # LPMT 2 — Rust rewrite (work in progress)
 
 **This fork:** Linux PipeWire window inputs are available with
-`cargo run -p lpmt-app --features pipewire --locked`. Use **Add windows…** in the
+`cargo run --release -p lpmt-app --features pipewire --locked`. Use **Add windows…** in the
 media shelf to capture multiple windows and map them independently.
 See [setup, usage and verification](docs/pipewire.md).
 

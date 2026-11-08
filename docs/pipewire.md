@@ -11,7 +11,7 @@ On Debian/Ubuntu, install these in addition to LPMT's normal windowing dependenc
 
 ```sh
 sudo apt install libpipewire-0.3-dev libclang-dev pkg-config
-cargo run -p lpmt-app --features pipewire --locked
+cargo run --release -p lpmt-app --features pipewire --locked
 ```
 
 PipeWire 0.3.65 or newer, `xdg-desktop-portal` and a desktop portal backend
@@ -33,7 +33,7 @@ The [two-window example](../assets/pipewire-two-windows.json) already has two in
 slots mapped to separate surfaces. Run it with:
 
 ```sh
-cargo run -p lpmt-app --features pipewire --locked -- --project assets/pipewire-two-windows.json
+cargo run --release -p lpmt-app --features pipewire --locked -- --project assets/pipewire-two-windows.json
 ```
 
 Select each card and click **Select window…**. Outputs start closed; open them
@@ -57,13 +57,28 @@ to a session, opening another project or exiting closes the portal session.
 
 ## Implementation limits
 
-Frames currently take a CPU RGBA conversion/upload path, not DMA-BUF zero-copy.
-Each stream has a latest-frame mailbox; queued older frames are dropped instead
-of building latency. Streams in the same selection share one portal remote and
-have separate format negotiation, crop metadata and GPU textures. RGBA, RGBx,
-BGRA and BGRx CPU buffers are supported; row stride, buffer offsets and the
-per-frame window crop are applied before uploading. This also handles compositors
-that allocate a large buffer and change its visible crop when a window resizes.
+PipeWire MemFd/MemPtr buffers are borrowed directly by the GPU uploader on the
+capture worker. It preserves row pitch and adjusts the start address for the
+visible crop: there is no intermediate pixel `Vec`, CPU crop copy or CPU channel
+swizzle. Native BGRA/RGBA textures handle channel order; RGBx/BGRx use a GPU pass
+to set alpha to one. Real alpha is preserved. Alpha-bearing formats are preferred
+to avoid that pass when the producer supports them. Stable dimensions/formats
+reuse textures, views, bind groups and thumbnail registrations across frames.
+
+`Queue::write_texture` copies into wgpu-owned staging memory before returning the
+PipeWire buffer. This is **not DMA-BUF zero-copy**: the compositor can still need
+a readback, and CPU-to-GPU transfer remains. DMA-BUF import also needs modifier
+negotiation, external synchronization and correct buffer lifetime/ownership; it
+is not enabled by simply advertising `SPA_DATA_DmaBuf`. See
+[PipeWire DMA-BUF sharing](https://docs.pipewire.org/devel/page_dma_buf.html).
+
+Each stream drains to the newest available buffer. At most one unconsumed upload
+per input is allowed, so a stalled editor does not accumulate transfers; it
+resumes on new producer frames after consuming the pending upload. The PipeWire
+loop wakes on file-descriptor readiness instead of an 8 ms polling timer. Streams
+in one selection share a portal remote, with independent dimensions and textures.
+Per-frame crop metadata also handles compositors that allocate an oversized
+buffer and change its visible rectangle when a window resizes.
 When provided by the portal, the stable PipeWire serial is used
 for targeting; older portals use their session-scoped node ID. Audio capture and
 automatic permission restoration are not included.
@@ -98,3 +113,51 @@ and reconnected one input while the other continued, cancelled a new selection,
 and saved/reopened the show. Reopening preserved both assignments, closed the
 portal sessions and displayed disconnected inputs in black. Physical multi-monitor
 presentation and a native Wayland desktop were not exercised in this session.
+
+## Performance verification
+
+Use the release binary for live shows. A reproducible GPU correctness check and
+release-to-release upload benchmark are included:
+
+```sh
+cargo run --release -p lpmt-render --example capture-bench --locked -- --check-only
+cargo run --release -p lpmt-render --example capture-bench --locked
+```
+
+The check reads pixels back from the GPU to verify all four formats, alpha,
+offset/padded crops, texture reuse and resizing. The benchmark compares the old
+allocation/crop-copy/CPU-swizzle/upload path with the direct upload/GPU-alpha path
+on the same device, using two BGRx inputs per sample. It uses 20 warmup samples,
+120 measured samples and three rounds with alternating A/B order. Each sample
+waits for GPU completion; CPU times exclude that wait. These are upload-path
+measurements, **not desktop capture-to-display latency or application FPS**.
+
+The optimized release was also exercised on the same isolated GNOME desktop:
+two animated window inputs, live resize, per-input disconnect, and a separate
+output window. The test application used the RTX 4060 Ti/Vulkan adapter; the
+virtual X11 compositor/display is not a representative presentation benchmark.
+Linux workspace tests (164) and macOS default tests (161), plus Clippy with
+warnings denied, passed. Native Wayland/DMA-BUF and physical multi-monitor timing
+remain unmeasured.
+
+### Upload measurements on the development host (2026-11-08)
+
+Ryzen 5 5600X, RTX 4060 Ti, Vulkan, NVIDIA 610.57.04, Ubuntu 24.04,
+Rust 1.95, release profile.
+The temporary graphical test session was stopped before the final run. GPU clocks
+were left under the driver's automatic power management (memory clock observed
+at 810 MHz during the 4K run); no power/clock settings were changed. Results vary
+with power state and other work on the host. Values below are medians of the
+three per-round medians; each sample contains **two** window uploads.
+
+| Inputs | Old CPU time | New CPU time | Old through GPU completion | New through GPU completion |
+| --- | ---: | ---: | ---: | ---: |
+| 2 × 1920×1080 | 7.609 ms | 1.522 ms | 7.849 ms | 1.773 ms |
+| 2 × 3840×2160 | 51.211 ms | 27.759 ms | 52.407 ms | 30.139 ms |
+
+[All rounds, including CPU p95](benchmarks/pipewire-rtx4060ti-2026-11-08.csv).
+Per-round CPU medians ranged from 3.839–7.617 ms (old) versus 1.508–1.530 ms
+(new) at 1080p, and 40.564–51.360 ms versus 27.723–27.777 ms at 4K. This does not
+establish a 4K60 presentation guarantee. The remaining host-to-device transfer
+is still material; DMA-BUF support would need separate implementation and
+native compositor validation.
