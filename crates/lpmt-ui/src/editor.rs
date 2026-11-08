@@ -28,6 +28,10 @@ pub struct EditorStatus {
     pub frame_ms: f32,
     pub message: String,
     pub transport: TransportStatus,
+    pub pipewire_supported: bool,
+    pub capture_pending: bool,
+    pub capture_message: String,
+    pub capture_status: HashMap<MediaId, String>,
     pub video_supported: bool,
     pub audio_supported: bool,
     pub audio_error: Option<String>,
@@ -441,6 +445,14 @@ pub enum SurfaceGeometryEdit {
 
 #[derive(Debug, Clone)]
 pub enum EditorAction {
+    AddWindowInputs,
+    ReconnectWindowInput {
+        media: usize,
+    },
+    StopWindowInput {
+        media: usize,
+    },
+    CancelWindowSelection,
     SetCorner {
         surface: usize,
         corner: usize,
@@ -2170,7 +2182,11 @@ pub fn draw(
     if state.mode == WorkspaceMode::Mapping {
         egui::Panel::bottom("lpmt-media-shelf")
             .resizable(true)
-            .default_size(190.0)
+            .default_size(if status.pipewire_supported {
+                230.0
+            } else {
+                190.0
+            })
             .show(ui, |ui| {
                 draw_media_shelf(ui, state, project, status, stage, &mut actions);
             });
@@ -2923,6 +2939,21 @@ fn draw_media_shelf(
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         ui.heading("Media shelf");
+        if ui
+            .add_enabled(
+                status.pipewire_supported && !status.capture_pending,
+                egui::Button::new("Add windows…"),
+            )
+            .on_disabled_hover_text(
+                "Requires Linux with PipeWire support; finish any open window selection first",
+            )
+            .clicked()
+        {
+            actions.push(EditorAction::AddWindowInputs);
+        }
+        if status.capture_pending && ui.button("Cancel selection").clicked() {
+            actions.push(EditorAction::CancelWindowSelection);
+        }
         if ui.button("Add media…").clicked() {
             actions.push(EditorAction::AddMedia);
             state.selected_media = project.media.len();
@@ -2945,6 +2976,9 @@ fn draw_media_shelf(
         }
     });
 
+    if !status.capture_message.is_empty() {
+        ui.label(&status.capture_message);
+    }
     if project.media.is_empty() {
         ui.label("No media yet. Add an image, video or audio file.");
         return;
@@ -3092,6 +3126,31 @@ fn draw_media_shelf(
                 );
             }
         });
+        if asset.kind == MediaKind::PipeWire {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(status.capture_status.get(&asset.id).map_or(
+                    "Disconnected · select a window to reconnect",
+                    String::as_str,
+                ));
+                if ui
+                    .add_enabled(
+                        status.pipewire_supported && !status.capture_pending,
+                        egui::Button::new("Select window…"),
+                    )
+                    .clicked()
+                {
+                    actions.push(EditorAction::ReconnectWindowInput {
+                        media: state.selected_media,
+                    });
+                }
+                if ui.button("Disconnect").clicked() {
+                    actions.push(EditorAction::StopWindowInput {
+                        media: state.selected_media,
+                    });
+                }
+            });
+            return;
+        }
         ui.horizontal(|ui| {
             ui.label("Path");
             ui.add(
@@ -5745,7 +5804,10 @@ fn draw_layer_editor(
     }
     if matches!(
         layer.source,
-        SourceSpec::Image { .. } | SourceSpec::Video { .. } | SourceSpec::Slideshow { .. }
+        SourceSpec::Image { .. }
+            | SourceSpec::Video { .. }
+            | SourceSpec::PipeWire { .. }
+            | SourceSpec::Slideshow { .. }
     ) {
         let mut fit = layer.fit;
         egui::ComboBox::from_label("Fit")
@@ -6579,7 +6641,9 @@ fn stage_slideshow_duration(stage: &Stage) -> f32 {
 
 fn layer_source(layer: &lpmt_core::model::Layer, project: &Project) -> String {
     match &layer.source {
-        SourceSpec::Image { media_id } | SourceSpec::Video { media_id } => project
+        SourceSpec::Image { media_id }
+        | SourceSpec::Video { media_id }
+        | SourceSpec::PipeWire { media_id } => project
             .media_asset(media_id)
             .map_or_else(|| "missing media".to_owned(), |asset| asset.name.clone()),
         SourceSpec::Slideshow { slideshow } => {
@@ -6623,7 +6687,9 @@ fn layer_surface_label(stage: &Stage, layer: &lpmt_core::model::Layer) -> String
 
 fn layer_media_index(layer: &lpmt_core::model::Layer, project: &Project) -> Option<usize> {
     let media_id = match &layer.source {
-        SourceSpec::Image { media_id } | SourceSpec::Video { media_id } => media_id,
+        SourceSpec::Image { media_id }
+        | SourceSpec::Video { media_id }
+        | SourceSpec::PipeWire { media_id } => media_id,
         SourceSpec::Slideshow { .. }
         | SourceSpec::TestPattern { .. }
         | SourceSpec::Solid { .. } => return None,
@@ -6813,6 +6879,7 @@ fn media_kind_label(kind: MediaKind) -> &'static str {
         MediaKind::Image => "image",
         MediaKind::Video => "video",
         MediaKind::Audio => "audio",
+        MediaKind::PipeWire => "live window",
     }
 }
 
@@ -6824,9 +6891,9 @@ fn media_usage(project: &Project, asset: &MediaAsset) -> String {
     for stage in &project.stages {
         for layer in &stage.layers {
             let uses_asset = match &layer.source {
-                SourceSpec::Image { media_id } | SourceSpec::Video { media_id } => {
-                    media_id == &asset.id
-                }
+                SourceSpec::Image { media_id }
+                | SourceSpec::Video { media_id }
+                | SourceSpec::PipeWire { media_id } => media_id == &asset.id,
                 SourceSpec::Slideshow { slideshow } => slideshow.media_ids.contains(&asset.id),
                 SourceSpec::TestPattern { .. } | SourceSpec::Solid { .. } => false,
             };

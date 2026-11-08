@@ -43,7 +43,7 @@ mkdir -p "$stage/assets" "$stage/docs" "$stage/packaging"
 install -m755 "$binary" "$stage/lpmt"
 cp -R assets/. "$stage/assets/"
 cp README.md COPYING AUTHORS "$stage/"
-cp docs/acceptance.md docs/rewrite-rfc.md docs/packaging.md "$stage/docs/"
+cp docs/acceptance.md docs/rewrite-rfc.md docs/packaging.md docs/pipewire.md "$stage/docs/"
 cp packaging/linux/lpmt.desktop packaging/linux/install.sh "$stage/"
 chmod +x "$stage/install.sh"
 

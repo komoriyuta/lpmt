@@ -4,7 +4,11 @@
 //! `video` feature and decodes into tightly packed RGBA frames on a worker
 //! thread; the renderer uploads those frames as GPU textures. Audio playback is
 //! compiled in with the `audio` feature and follows the application's show
-//! clock. Capture and shared textures will follow the same CPU-to-GPU path.
+//! clock. Linux window capture uses the optional `pipewire` feature and the
+//! same CPU-to-GPU path.
+
+#[cfg(all(feature = "pipewire", target_os = "linux"))]
+pub mod capture;
 
 use std::path::Path;
 

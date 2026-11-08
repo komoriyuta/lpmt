@@ -1,5 +1,10 @@
 # LPMT 2 — Rust rewrite (work in progress)
 
+**This fork:** Linux PipeWire window inputs are available with
+`cargo run -p lpmt-app --features pipewire --locked`. Use **Add windows…** in the
+media shelf to capture multiple windows and map them independently.
+See [setup, usage and verification](docs/pipewire.md).
+
 LPMT 2 is the modern Rust/GPU rewrite of **LPMT — Little Projection-Mapping Tool**.
 It keeps the projection-mapping workflow of the original C++/openFrameworks
 application while replacing the fixed-capacity, single-process architecture with a

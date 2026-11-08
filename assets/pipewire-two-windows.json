@@ -1,0 +1,217 @@
+{
+  "schema_version": 2,
+  "id": "project-demo",
+  "name": "Two PipeWire windows",
+  "stages": [
+    {
+      "id": "stage-main",
+      "name": "Main stage",
+      "aspect": 1.7777778,
+      "background": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "surfaces": [
+        {
+          "id": "surface-1",
+          "name": "Window 1 surface",
+          "corners": [
+            {
+              "x": 0.03,
+              "y": 0.15
+            },
+            {
+              "x": 0.48,
+              "y": 0.1
+            },
+            {
+              "x": 0.46,
+              "y": 0.88
+            },
+            {
+              "x": 0.05,
+              "y": 0.85
+            }
+          ],
+          "mask": {
+            "enabled": false,
+            "invert": false,
+            "feather": 0.0,
+            "points": []
+          },
+          "opacity": 1.0,
+          "visible": true
+        },
+        {
+          "id": "surface-2",
+          "name": "Window 2 surface",
+          "corners": [
+            {
+              "x": 0.52,
+              "y": 0.15
+            },
+            {
+              "x": 0.97,
+              "y": 0.1
+            },
+            {
+              "x": 0.95,
+              "y": 0.88
+            },
+            {
+              "x": 0.54,
+              "y": 0.85
+            }
+          ],
+          "mask": {
+            "enabled": false,
+            "invert": false,
+            "feather": 0.0,
+            "points": []
+          },
+          "opacity": 1.0,
+          "visible": true
+        }
+      ],
+      "layers": [
+        {
+          "id": "layer-1",
+          "name": "Window 1",
+          "surface_ids": [
+            "surface-1"
+          ],
+          "source": {
+            "type": "pipe_wire",
+            "media_id": "pipewire-1"
+          },
+          "crop": {
+            "top": 0.0,
+            "right": 0.0,
+            "bottom": 0.0,
+            "left": 0.0,
+            "circle": null
+          },
+          "color": {
+            "tint": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "chroma_key": {
+            "enabled": false,
+            "color": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "tolerance": 0.15,
+            "softness": 0.05,
+            "spill": 0.0
+          },
+          "fit": "stretch",
+          "opacity": 1.0,
+          "blend": "normal",
+          "visible": true
+        },
+        {
+          "id": "layer-2",
+          "name": "Window 2",
+          "surface_ids": [
+            "surface-2"
+          ],
+          "source": {
+            "type": "pipe_wire",
+            "media_id": "pipewire-2"
+          },
+          "crop": {
+            "top": 0.0,
+            "right": 0.0,
+            "bottom": 0.0,
+            "left": 0.0,
+            "circle": null
+          },
+          "color": {
+            "tint": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "chroma_key": {
+            "enabled": false,
+            "color": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "tolerance": 0.15,
+            "softness": 0.05,
+            "spill": 0.0
+          },
+          "fit": "stretch",
+          "opacity": 1.0,
+          "blend": "normal",
+          "visible": true
+        }
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "id": "output-1",
+      "name": "Main output",
+      "stage_id": "stage-main",
+      "view": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "target": {
+        "type": "windowed",
+        "width": 1280,
+        "height": 720
+      },
+      "enabled": false,
+      "edge_blend": {
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0,
+        "bottom": 0.0
+      },
+      "color": {
+        "brightness": 1.0,
+        "contrast": 1.0,
+        "gamma": 1.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "output_groups": [],
+  "media": [
+    {
+      "id": "pipewire-1",
+      "name": "Window 1",
+      "kind": "pipe_wire",
+      "path": ""
+    },
+    {
+      "id": "pipewire-2",
+      "name": "Window 2",
+      "kind": "pipe_wire",
+      "path": ""
+    }
+  ],
+  "audio": {
+    "media_id": null,
+    "volume": 1.0,
+    "muted": false
+  }
+}

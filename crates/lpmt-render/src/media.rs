@@ -136,6 +136,19 @@ impl MediaCache {
         self.revision = self.revision.wrapping_add(1);
     }
 
+    pub fn remove(&mut self, id: &MediaId) {
+        if self.media.remove(id).is_some() {
+            self.revision = self.revision.wrapping_add(1);
+        }
+    }
+
+    /// Reload file assets without blanking a live window that has not changed.
+    pub fn clear_except(&mut self, keep: &[MediaId]) {
+        self.media.retain(|id, _| keep.contains(id));
+        self.masks.clear();
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -208,6 +221,13 @@ impl MediaCache {
         seconds: f32,
     ) -> Result<(wgpu::BindGroup, [f32; 2])> {
         match source {
+            SourceSpec::PipeWire { media_id } => {
+                if let Some(entry) = self.media.get(media_id) {
+                    Ok((entry.bind_group.clone(), entry_size(entry)))
+                } else {
+                    self.source_binding(gpu, &SourceSpec::Solid { color: [0.0; 3] }, seconds)
+                }
+            }
             SourceSpec::Image { media_id } | SourceSpec::Video { media_id } => {
                 let entry = self
                     .media

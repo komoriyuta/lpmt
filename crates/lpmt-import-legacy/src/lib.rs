@@ -792,6 +792,7 @@ fn ensure_media(
         MediaKind::Image => MediaAsset::image(id.as_str(), name, path),
         MediaKind::Video => MediaAsset::video(id.as_str(), name, path),
         MediaKind::Audio => MediaAsset::audio(id.as_str(), name, path),
+        MediaKind::PipeWire => unreachable!("legacy imports only contain file assets"),
     };
     media.push(asset);
     by_path.insert(key, id.clone());

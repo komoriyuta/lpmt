@@ -5,6 +5,7 @@
 //! demonstration of the Stage + Outputs architecture.
 
 mod audio_runtime;
+mod capture_runtime;
 mod clock;
 mod history;
 mod project_io;
@@ -12,6 +13,7 @@ mod recovery;
 mod video_runtime;
 
 use audio_runtime::AudioRuntime;
+use capture_runtime::CaptureRuntime;
 use clock::ShowClock;
 use history::{History, HistoryKey};
 
@@ -176,6 +178,7 @@ struct App {
     thumbnail_revision: u64,
     monitors: Vec<String>,
     videos: VideoRuntime,
+    captures: CaptureRuntime,
     audio: AudioRuntime,
     osc: Option<OscListener>,
     osc_address: String,
@@ -304,6 +307,7 @@ impl App {
             thumbnail_revision: 0,
             monitors: Vec::new(),
             videos: VideoRuntime::new(),
+            captures: CaptureRuntime::default(),
             audio: AudioRuntime::new(),
             osc,
             osc_address,
@@ -2549,6 +2553,14 @@ impl App {
                     }
                 }
                 EditorAction::SetMediaPath { media, path } => {
+                    if self
+                        .project
+                        .media
+                        .get(media)
+                        .is_some_and(|asset| asset.kind == MediaKind::PipeWire)
+                    {
+                        continue;
+                    }
                     let fallback = self
                         .project
                         .media
@@ -2579,6 +2591,9 @@ impl App {
                     };
                     let source = match asset.kind {
                         MediaKind::Image => SourceSpec::Image {
+                            media_id: asset.id.clone(),
+                        },
+                        MediaKind::PipeWire => SourceSpec::PipeWire {
                             media_id: asset.id.clone(),
                         },
                         MediaKind::Video => SourceSpec::Video {
@@ -2799,6 +2814,13 @@ impl App {
                     let mut layer = match kind {
                         MediaKind::Image => Layer::image(id, name, primary, &media_id),
                         MediaKind::Video => Layer::video(id, name, primary, &media_id),
+                        MediaKind::PipeWire => {
+                            let mut layer = Layer::image(id, name, primary, &media_id);
+                            layer.source = SourceSpec::PipeWire {
+                                media_id: media_id.clone(),
+                            };
+                            layer
+                        }
                         MediaKind::Audio => unreachable!("audio is rejected above"),
                     };
                     layer.surface_ids = surface_ids;
@@ -3099,6 +3121,40 @@ impl App {
                         group.outputs.retain(|id| id != &output_id);
                     }
                 }
+                EditorAction::AddWindowInputs => {
+                    if let Err(error) = self.captures.start(None) {
+                        self.captures.message = format!("{error:#}");
+                    }
+                }
+                EditorAction::ReconnectWindowInput { media } => {
+                    if let Some(asset) = self
+                        .project
+                        .media
+                        .get(media)
+                        .filter(|asset| asset.kind == MediaKind::PipeWire)
+                    {
+                        let id = asset.id.clone();
+                        if !self.captures.pending() {
+                            self.captures.stop(&id, &mut self.media);
+                            if let Err(error) = self.captures.start(Some(id)) {
+                                self.captures.message = format!("{error:#}");
+                            }
+                        }
+                    }
+                }
+                EditorAction::StopWindowInput { media } => {
+                    if let Some(asset) = self
+                        .project
+                        .media
+                        .get(media)
+                        .filter(|asset| asset.kind == MediaKind::PipeWire)
+                    {
+                        self.captures.stop(&asset.id, &mut self.media);
+                    }
+                }
+                EditorAction::CancelWindowSelection => {
+                    self.captures.cancel_pending();
+                }
                 EditorAction::ReloadMedia => self.reload_media(),
                 EditorAction::Undo => self.undo(),
                 EditorAction::Redo => self.redo(),
@@ -3390,6 +3446,9 @@ impl App {
                             MediaKind::Image => MediaAsset::image(id, name, stored.clone()),
                             MediaKind::Video => MediaAsset::video(id, name, stored.clone()),
                             MediaKind::Audio => MediaAsset::audio(id, name, stored.clone()),
+                            MediaKind::PipeWire => {
+                                unreachable!("file picker does not create live inputs")
+                            }
                         };
                         self.project.media.push(asset);
                         self.ui_state.selected_media = self.project.media.len() - 1;
@@ -3424,6 +3483,9 @@ impl App {
                     let Some(asset) = self.project.media.get(media) else {
                         continue;
                     };
+                    if asset.kind == MediaKind::PipeWire {
+                        continue;
+                    }
                     let selected_layer = self.ui_state.selected_layer;
                     let fallback = asset.kind;
                     let dialog = media_file_dialog(&self.media_base);
@@ -3557,12 +3619,15 @@ impl App {
         for layer in &mut stage.layers {
             let uses_media = matches!(
                 &layer.source,
-                SourceSpec::Image { media_id: id } | SourceSpec::Video { media_id: id }
+                SourceSpec::Image { media_id: id } | SourceSpec::Video { media_id: id } | SourceSpec::PipeWire { media_id: id }
                     if id == &media_id
             );
             if uses_media {
                 layer.source = match kind {
                     MediaKind::Image => SourceSpec::Image {
+                        media_id: media_id.clone(),
+                    },
+                    MediaKind::PipeWire => SourceSpec::PipeWire {
                         media_id: media_id.clone(),
                     },
                     MediaKind::Video => SourceSpec::Video {
@@ -3598,7 +3663,13 @@ impl App {
             ..
         } = self;
 
-        media.clear();
+        let live_ids = project
+            .media
+            .iter()
+            .filter(|asset| asset.kind == MediaKind::PipeWire)
+            .map(|asset| asset.id.clone())
+            .collect::<Vec<_>>();
+        media.clear_except(&live_ids);
         let (video_loaded, _) = videos.load(project, media_base);
         let mut loaded = video_loaded;
         let (audio_loaded, audio_failed) = audio.load(project, media_base);
@@ -3759,6 +3830,8 @@ impl App {
     }
 
     fn install_project(&mut self, project: Project, path: &Path, saved_project: Project) {
+        self.captures = CaptureRuntime::default();
+        self.media.clear();
         self.project = project;
         self.saved_project = saved_project;
         self.history.clear();
@@ -3925,6 +3998,10 @@ impl App {
             frame_ms: self.frame_ms,
             message: self.status_message.clone(),
             transport,
+            pipewire_supported: CaptureRuntime::SUPPORTED,
+            capture_pending: self.captures.pending(),
+            capture_message: self.captures.message.clone(),
+            capture_status: self.captures.statuses(),
             video_supported: cfg!(feature = "video"),
             audio_supported: cfg!(feature = "audio"),
             audio_error: self.audio.error().map(str::to_owned),
@@ -4263,6 +4340,16 @@ impl ApplicationHandler for App {
             force_seek || loop_wrap,
         );
         self.videos.poll(&self.gpu, &mut self.media);
+        let added = self
+            .captures
+            .poll(&self.project, &self.gpu, &mut self.media);
+        if !added.is_empty() {
+            let before = self.project.clone();
+            self.ui_state.selected_media = self.project.media.len();
+            self.ui_state.media_folder_filter = None;
+            self.project.media.extend(added);
+            self.finish_history(before, HistoryKey::Discrete, "add window inputs");
+        }
 
         self.render_preview();
         self.render_outputs();
@@ -4833,6 +4920,10 @@ fn require_bool(value: &ParameterValue, path: &str) -> Result<bool, String> {
 fn history_key(action: &EditorAction) -> Option<(HistoryKey, &'static str)> {
     use EditorAction::*;
     let key = match action {
+        AddWindowInputs
+        | ReconnectWindowInput { .. }
+        | StopWindowInput { .. }
+        | CancelWindowSelection => return None,
         SetCorner {
             surface, corner, ..
         } => (

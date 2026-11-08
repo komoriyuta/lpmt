@@ -600,6 +600,8 @@ pub enum MediaKind {
     Image,
     Video,
     Audio,
+    /// A live window selected through the Linux ScreenCast portal.
+    PipeWire,
 }
 
 /// A source file referenced by one or more layers. Paths are stored relative
@@ -616,6 +618,17 @@ pub struct MediaAsset {
 }
 
 impl MediaAsset {
+    /// A persistent input slot; portal node IDs and file descriptors are never saved.
+    pub fn pipewire(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: MediaId::new(id),
+            name: name.into(),
+            kind: MediaKind::PipeWire,
+            path: String::new(),
+            folder: None,
+        }
+    }
+
     pub fn image(id: impl Into<String>, name: impl Into<String>, path: impl Into<String>) -> Self {
         Self {
             id: MediaId::new(id),
@@ -658,6 +671,9 @@ impl MediaAsset {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SourceSpec {
+    PipeWire {
+        media_id: MediaId,
+    },
     TestPattern {
         pattern: TestPattern,
     },
@@ -1323,7 +1339,9 @@ impl Project {
         }
         self.stages.iter().any(|stage| {
             stage.layers.iter().any(|layer| match &layer.source {
-                SourceSpec::Image { media_id } | SourceSpec::Video { media_id } => media_id == id,
+                SourceSpec::Image { media_id }
+                | SourceSpec::Video { media_id }
+                | SourceSpec::PipeWire { media_id } => media_id == id,
                 SourceSpec::Slideshow { slideshow } => slideshow.media_ids.contains(id),
                 SourceSpec::TestPattern { .. } | SourceSpec::Solid { .. } => false,
             })
@@ -1411,6 +1429,26 @@ mod tests {
         TimelineColourKey, TimelineColourTrack, TimelineCommand, TimelineCue,
         TimelineInterpolation, TimelineKey, TimelineMarker, TimelineTrigger,
     };
+
+    #[test]
+    fn pipewire_slots_round_trip_and_remain_referenced() {
+        let mut project = Project::demo();
+        let a = MediaAsset::pipewire("live-a", "Browser");
+        let b = MediaAsset::pipewire("live-b", "Visuals");
+        project.stages[0].layers[0].source = SourceSpec::PipeWire {
+            media_id: a.id.clone(),
+        };
+        project.stages[0].layers[1].source = SourceSpec::PipeWire {
+            media_id: b.id.clone(),
+        };
+        project.media.extend([a.clone(), b.clone()]);
+        assert!(project.is_media_used(&a.id));
+        assert!(project.is_media_used(&b.id));
+        let json = serde_json::to_string(&project).unwrap();
+        let restored: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, project);
+        assert!(restored.media_asset(&a.id).unwrap().path.is_empty());
+    }
 
     #[test]
     fn demo_project_is_serializable() {

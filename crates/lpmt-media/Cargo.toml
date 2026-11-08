@@ -10,6 +10,7 @@ description = "Media assets, decoding, playback and capture for LPMT"
 default = []
 video = ["dep:ffmpeg-next"]
 audio = ["dep:rodio"]
+pipewire = ["dep:ashpd", "dep:async-io", "dep:futures-lite", "dep:pipewire"]
 
 [dependencies]
 anyhow.workspace = true
@@ -18,6 +19,12 @@ image.workspace = true
 log.workspace = true
 lpmt-core = { path = "../lpmt-core" }
 rodio = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.14", default-features = false, features = ["async-io", "screencast"], optional = true }
+async-io = { version = "2", optional = true }
+futures-lite = { version = "2", optional = true }
+pipewire = { version = "0.10", features = ["v0_3_65"], optional = true }
 
 [[example]]
 name = "decode-video"
